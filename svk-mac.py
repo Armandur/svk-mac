@@ -19,8 +19,15 @@ def findEventValidationViewstate(html):
 
 
 def login(session, credentials):
+	#TODO Add support for multiple economic units
+
 	url = "http://bestallningsportal.system.svenskakyrkan.se/Inloggning.aspx"
-	html = session.get(url).text  # Get the initial page to get viewstate and other aspx
+	req = session.get(url)
+	html = req.text  # Get the initial page to get viewstate and other aspx
+	if req.status_code >= 400: #Check if page errored, most likely not connected to KNET
+		print(f"Error {req.status_code}, connected to KNET?")
+		exit(1)
+
 	aspx = findEventValidationViewstate(html)
 	data = {
 		"__EVENTVALIDATION": aspx["validation"],
@@ -35,8 +42,8 @@ def login(session, credentials):
 	req = session.post(url, data=data)
 	html = req.text
 
-	if html.find("Du har inga rättigheter till detta system.") != -1:
-		print("Login failed")
+	if html.find("Du har inga rättigheter till detta system") != -1:
+		print("Login failed, check access and credentials")
 		exit(1)
 
 
@@ -99,6 +106,8 @@ def registerMAC(session, mac, name, type):
 	}
 
 	req = session.post(url, data=data, headers=headers)
+
+	#TODO Add check to see if MAC already exists, check the req.text for error message
 
 
 def verifyMACExists(session, mac):
@@ -173,7 +182,6 @@ def main(argv):
 		exit(0)
 	elif operation == "registerMultiple":
 		login(sess, credentials)
-
 		#MAC	NAME	TYPE
 		with open(inputFile, 'r') as file:
 			for line in file:
@@ -184,7 +192,8 @@ def main(argv):
 				registerMAC(sess, mac, name, device)
 				print(f"{name} {mac} {device} registered: {verifyMACExists(sess, mac)}")
 
+	#TODO Add support to check mac-addresses from input file
+
 if __name__ == '__main__':
-	#Example params:  -u USER -p PASSWORD -m 11:12:13:14:15:16 -n 123Test -t PHONE
 	main(sys.argv[1:])
 
