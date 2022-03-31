@@ -107,7 +107,7 @@ def registerMAC(session, mac, name, type):
 
 	req = session.post(url, data=data, headers=headers)
 
-	#TODO Add check to see if MAC already exists, check the req.text for error message
+	#TODO Add check to see if registering fails due to MAC already existing, check the req.text for error message?
 
 
 def verifyMACExists(session, mac):
@@ -136,6 +136,7 @@ def main(argv):
 	inputFile = ""
 
 	operation = "register"
+	multiple = False
 
 	try:
 		opts, args = getopt.getopt(argv, "hu:p:m:n:t:i:", ["input=", "check"])
@@ -162,7 +163,7 @@ def main(argv):
 				exit(1)
 		elif opt in ("-i", "--input"):
 			inputFile = arg
-			operation = "registerMultiple"
+			multiple = True
 		elif opt == "--check":
 			operation = "check"
 		else:
@@ -171,17 +172,18 @@ def main(argv):
 			exit(1)
 
 	sess = requests.Session()
+	login(sess, credentials)
+	
 	if operation == "register":
-		login(sess, credentials)
 		registerMAC(sess, mac, name, device)
 		print(f"{name} {mac} {device} registered: {verifyMACExists(sess, mac)}")
 		exit(0)
+	
 	elif operation == "check":
-		login(sess, credentials)
 		print(f"MAC {mac} registered: {verifyMACExists(sess, mac)}")
 		exit(0)
-	elif operation == "registerMultiple":
-		login(sess, credentials)
+	
+	elif operation == "register" and multiple:
 		#MAC	NAME	TYPE
 		with open(inputFile, 'r') as file:
 			for line in file:
@@ -191,8 +193,15 @@ def main(argv):
 				device = Type[split[2]]
 				registerMAC(sess, mac, name, device)
 				print(f"{name} {mac} {device} registered: {verifyMACExists(sess, mac)}")
+	
+	elif operation == "check" and multiple:
+		#MAC	NAME	TYPE
+		with open(inputFile, 'r') as file:
+			for line in file:
+				split = line.strip().split('\t')
+				mac = split[0]
+				print(f"MAC {mac} registered: {verifyMACExists(sess, mac)}")
 
-	#TODO Add support to check mac-addresses from input file
 
 if __name__ == '__main__':
 	main(sys.argv[1:])
