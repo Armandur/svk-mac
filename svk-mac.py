@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Author: Rasmus Pettersson Vik
-# Version: 1.0.0
+# Version: 1.0.2
 
 import requests
 import sys
@@ -19,8 +19,6 @@ def findEventValidationViewstate(html):
 
 
 def login(session, credentials):
-	#TODO Add support for multiple economic units
-
 	url = "http://bestallningsportal.system.svenskakyrkan.se/Inloggning.aspx"
 	req = session.get(url)
 	html = req.text  # Get the initial page to get viewstate and other aspx
@@ -45,6 +43,16 @@ def login(session, credentials):
 	if html.find("Du har inga rättigheter till detta system") != -1:
 		print("Login failed, check access and credentials")
 		exit(1)
+
+	#TODO Add support for choosing between multiple economic units.
+
+
+def logout(session):
+	#TODO implement
+	#Navigate to http://bestallningsportal.system.svenskakyrkan.se/Bestallning.aspx and press "Logga ut"
+	url = "http://bestallningsportal.system.svenskakyrkan.se/Bestallning.aspx"
+	navigate(session, url)
+	return
 
 
 def navigate(session, url):
@@ -114,7 +122,7 @@ def verifyMACExists(session, mac):
 	url = "http://bestallningsportal.system.svenskakyrkan.se/GastnatLista.aspx"
 	aspx, html = navigate(session, url)
 	mac = mac.lower()
-	return bool((html.find(mac)))
+	return bool((html.find(mac))) #TODO Improve this to return info on line about the registered device (name, type, last used etc)
 
 
 def main(argv):
@@ -146,26 +154,34 @@ def main(argv):
 	for opt, arg in opts:
 		if opt == "-h":
 			print(usage)
-			exit()
+			exit(2)
+
 		elif opt == "-u":
 			credentials["username"] = arg
+
 		elif opt == "-p":
 			credentials["password"] = arg
+
 		elif opt == "-m":
 			mac = arg
+
 		elif opt == "-n":
 			name = arg
+
 		elif opt == "-t":
 			if arg in ("LAPTOP", "PHONE", "TABLET", "OTHER"):
 				device = Type[arg]
 			else:
-				print("Wrong type")
+				print(f"Wrong type: {arg}")
 				exit(1)
+
 		elif opt in ("-i", "--input"):
 			inputFile = arg
 			multiple = True
+
 		elif opt == "--check":
 			operation = "check"
+
 		else:
 			print(f"Illegal option: {opt} : {arg}")
 			print(usage)
@@ -195,7 +211,7 @@ def main(argv):
 				print(f"{name} {mac} {device} registered: {verifyMACExists(sess, mac)}")
 	
 	elif operation == "check" and multiple:
-		#MAC	NAME	TYPE
+		#MAC	(NAME	TYPE)
 		with open(inputFile, 'r') as file:
 			for line in file:
 				split = line.strip().split('\t')
