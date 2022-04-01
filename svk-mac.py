@@ -5,6 +5,7 @@
 from audioop import mul
 import requests
 import sys
+from sys import exit
 import getopt
 from enum import Enum
 from bs4 import BeautifulSoup
@@ -46,7 +47,7 @@ def login(session, credentials, findUnits=False):
 	html = req.text  # Get the initial page to get viewstate and other aspx
 	if req.status_code >= 400: #Check if page errored, most likely not connected to KNET
 		print(f"Error {req.status_code}, connected to KNET?")
-		exit(1)
+		sys.exit(1)
 
 	aspx = findEventValidationViewstate(html)
 	data = {
@@ -70,7 +71,7 @@ def login(session, credentials, findUnits=False):
 	if not multipleUnits and (html.find("form method=\"post\" action=\"./Inloggning.aspx\"") != -1 or \
 	   html.find("Du har inga rättigheter till detta system") != -1):
 		print("Login failed, check access and credentials")
-		exit(1)
+		sys.exit(1)
 
 	if not html.find("Välj enhet") and multipleUnits: #Wanted to find units, but user only has access to single unit
 		print(f"Single economic unit access: {getSingleEconomicUnit(html)}")
@@ -198,7 +199,7 @@ def main(argv):
 	if len(argv) == 0:
 		print("No parameters given")
 		print(usage)
-		exit(1)
+		sys.exit(1)
 
 	credentials = {
 		"username": "",
@@ -218,11 +219,11 @@ def main(argv):
 		opts, args = getopt.getopt(argv, "hfu:p:e:m:n:t:i:", ["ifile=", "check"])
 	except getopt.GetoptError:
 		print(usage)
-		exit(2)
+		sys.exit(2)
 	for opt, arg in opts:
 		if opt == "-h":
 			print(usage)
-			exit(2)
+			sys.exit(2)
 
 		elif opt == '-f': #Get choices of different economic units
 			operation = "findUnits"
@@ -247,7 +248,7 @@ def main(argv):
 				device = Type[arg]
 			else:
 				print(f"Wrong type: {arg}")
-				exit(1)
+				sys.exit(1)
 
 		elif opt in ("-i", "--ifile"):
 			inputFile = arg
@@ -259,7 +260,7 @@ def main(argv):
 		else:
 			print(f"Illegal option: {opt} : {arg}")
 			print(usage)
-			exit(1)
+			sys.exit(1)
 
 	sess = requests.Session()
 	
@@ -268,7 +269,7 @@ def main(argv):
 		registerMAC(sess, mac, name, device)
 		
 		logout(sess)
-		exit(0)
+		sys.exit(0)
 
 	elif operation == "register" and multiple:
 		login(sess, credentials)
@@ -282,14 +283,14 @@ def main(argv):
 				registerMAC(sess, mac, name, device)
 		
 		logout(sess)
-		exit(0)
+		sys.exit(0)
 	
 	elif operation == "check" and not multiple:
 		login(sess, credentials)
 		print(f"MAC {mac} registered: {verifyMACExists(sess, mac)}")
 		
 		logout(sess)
-		exit(0)
+		sys.exit(0)
 	
 	elif operation == "check" and multiple:
 		login(sess, credentials)
@@ -301,13 +302,13 @@ def main(argv):
 				print(f"MAC {mac} registered: {verifyMACExists(sess, mac)}")
 		
 		logout(sess)
-		exit(0)
+		sys.exit(0)
 	
 	elif operation == "findUnits":
 		login(sess, credentials, findUnits=True)
 		
 		logout(sess)
-		exit(0)
+		sys.exit(0)
 
 if __name__ == '__main__':
 	main(sys.argv[1:])
