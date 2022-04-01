@@ -21,6 +21,3 @@ list-of-mac-adresses.txt tab-separated with
 Python modules, add with pip install <module>:
 * requests
 * beutifulsoup4
-
-## Download
-  Download dist/svk-mac/svk-mac.7z, extract and run svk-mac.exe, built on win 10 x64 with pyinstaller.
