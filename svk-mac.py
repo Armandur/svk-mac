@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # Author: Rasmus Pettersson Vik
-# Version: 1.0.2
+# Version: 1.2.0
 
+from audioop import mul
 import requests
 import sys
 import getopt
@@ -12,13 +13,34 @@ from bs4 import BeautifulSoup
 # Viewstate and validation updates on every page, need to get them from the GET-html
 def findEventValidationViewstate(html):
 	soup = BeautifulSoup(html, "html.parser")
-	validation = soup.find(id='__EVENTVALIDATION').attrs['value']
-	viewstate = soup.find(id='__VIEWSTATE').attrs['value']
-	viewstategen = soup.find(id='__VIEWSTATEGENERATOR').attrs['value']
-	return {"validation": validation, "viewstate": viewstate, "viewstategen": viewstategen}
+	validation = ""
+	viewstate = ""
+	viewstategen = ""
+	try: #For findUnits and logging out there will be no validation, viewstate etc so we just try to set them
+		validation = soup.find(id='__EVENTVALIDATION').attrs['value']
+		viewstate = soup.find(id='__VIEWSTATE').attrs['value']
+		viewstategen = soup.find(id='__VIEWSTATEGENERATOR').attrs['value']
+	finally:
+		return {"validation": validation, "viewstate": viewstate, "viewstategen": viewstategen}
 
 
-def login(session, credentials):
+def getSingleEconomicUnit(html):
+	soup = BeautifulSoup(html, "html.parser")
+	unit = soup.find(id='cph1_ctrlViewsBestallningView_ctrlLoggedInBarView_lblEnhet').contents[0].strip()
+	return unit
+
+
+def getMultipleEconomicUnits(html):
+	soup = BeautifulSoup(html, "html.parser")
+	options = soup.find_all("option")
+	units = []
+	for option in options:
+		if option.attrs['value'] != "00000000-0000-0000-0000-000000000000":
+			units.append((option.contents[0].strip(), option.attrs['value'])) # Unit, ID
+	return units
+
+
+def login(session, credentials, findUnits=False):
 	url = "http://bestallningsportal.system.svenskakyrkan.se/Inloggning.aspx"
 	req = session.get(url)
 	html = req.text  # Get the initial page to get viewstate and other aspx
@@ -40,19 +62,49 @@ def login(session, credentials):
 	req = session.post(url, data=data)
 	html = req.text
 
-	if html.find("Du har inga rättigheter till detta system") != -1:
+	multipleUnits = False
+	if html.find("Välj enhet:"): #Multiple economic units use credentials["economicUnit"]
+		aspx = findEventValidationViewstate(html)
+		multipleUnits = True
+
+	if not multipleUnits and (html.find("form method=\"post\" action=\"./Inloggning.aspx\"") != -1 or \
+	   html.find("Du har inga rättigheter till detta system") != -1):
 		print("Login failed, check access and credentials")
 		exit(1)
 
-	#TODO Add support for choosing between multiple economic units.
+	if not html.find("Välj enhet") and multipleUnits: #Wanted to find units, but user only has access to single unit
+		print(f"Single economic unit access: {getSingleEconomicUnit(html)}")
+
+	if findUnits and multipleUnits:
+		print("Found units:")
+		for unit in getMultipleEconomicUnits(html):
+			print(f"{unit[0]} : {unit[1]}")
+
+	if multipleUnits:
+		data = {
+			"__EVENTTARGET": "ctl00$cph1$ctrlInloggningView$lstEnheter",
+			"__EVENTVALIDATION": aspx["validation"],
+			"__VIEWSTATEGENERATOR": aspx["viewstategen"],
+			"__VIEWSTATE": aspx["viewstate"],
+			"ctl00$cph1$ctrlInloggningView$lstEnheter": credentials["economicUnit"]
+		}
+		req = session.post(url, data=data)
 
 
 def logout(session):
-	#TODO implement
 	#Navigate to http://bestallningsportal.system.svenskakyrkan.se/Bestallning.aspx and press "Logga ut"
 	url = "http://bestallningsportal.system.svenskakyrkan.se/Bestallning.aspx"
-	navigate(session, url)
-	return
+	aspx, html = navigate(session, url)
+
+	data = {
+			"ctl00$cph1$ctrlViewsBestallningView$MainScriptManager": "ctl00$cph1$ctrlViewsBestallningView$pnlHelloWorld|ctl00$cph1$ctrlViewsBestallningView$ctrlLoggedInBarView$btnLogout",
+			"__EVENTTARGET": "ctl00$cph1$ctrlViewsBestallningView$ctrlLoggedInBarView$btnLogout",
+			"__EVENTVALIDATION": aspx["validation"],
+			"__VIEWSTATEGENERATOR": aspx["viewstategen"],
+			"__VIEWSTATE": aspx["viewstate"],
+			"__ASYNCPOST": "true"
+	}
+	session.post(url, data=data)
 
 
 def navigate(session, url):
@@ -62,7 +114,7 @@ def navigate(session, url):
 	return findEventValidationViewstate(html), html
 
 
-def getCompanyName(html):
+def getCompanyNameMAC(html):
 	soup = BeautifulSoup(html, "html.parser")
 	company = soup.find(id='cph1_ctrlMacCreateView_txtCompany').attrs['value']
 	return company
@@ -78,7 +130,13 @@ class Type(Enum):
 def registerMAC(session, mac, name, type):
 	url = "http://bestallningsportal.system.svenskakyrkan.se/MacSkapa.aspx"
 	aspx, html = navigate(session, url)
-	company = getCompanyName(html)
+	company = getCompanyNameMAC(html)
+
+	if verifyMACExists(session, mac):
+		print(f"MAC {mac} already registered in {company}")
+		return
+	
+	aspx, html = navigate(session, url)	
 
 	headers = {
 		"Cache-Control": "no-cache",
@@ -114,19 +172,28 @@ def registerMAC(session, mac, name, type):
 	}
 
 	req = session.post(url, data=data, headers=headers)
+	html = req.text
 
-	#TODO Add check to see if registering fails due to MAC already existing, check the req.text for error message?
+	search = "Orsak: Error - Problem med att skapa mac-konto, mac-adress: "
+	if html.find(search) != -1:
+		print(f"MAC {mac} already registered, possibly in another economic unit")
+	else:
+		print(f"{name} {mac} {type} registered: {verifyMACExists(session, mac)}")
 
 
 def verifyMACExists(session, mac):
 	url = "http://bestallningsportal.system.svenskakyrkan.se/GastnatLista.aspx"
 	aspx, html = navigate(session, url)
 	mac = mac.lower()
-	return bool((html.find(mac))) #TODO Improve this to return info on line about the registered device (name, type, last used etc)
+	
+	if html.find(mac) == -1:
+		return False
+	else:
+		return True #TODO Improve this to return info on line about the registered device (name, type, last used etc)
 
 
 def main(argv):
-	usage = "svk-mac.py -u <username> -p <password> -m <mac-address> -n <name> -t <LAPTOP/PHONE/TABLET/OTHER> -i/--input <list-of-mac-adresses.txt>, --check <checks if MAC in -m exists>"
+	usage = "svk-mac.py -h -f (Find economic unit IDs) -u <username> -p <password> -e OPTIONAL <economic unit ID in case access to multiple> -m <mac-address> -n <name> -t <LAPTOP/PHONE/TABLET/OTHER> -i/--ifile <list-of-mac-adresses.txt>, --check <checks if MAC in -m exists>"
 
 	if len(argv) == 0:
 		print("No parameters given")
@@ -135,7 +202,8 @@ def main(argv):
 
 	credentials = {
 		"username": "",
-		"password": ""
+		"password": "",
+		"economicUnit": ""
 	}
 
 	mac = ""
@@ -147,7 +215,7 @@ def main(argv):
 	multiple = False
 
 	try:
-		opts, args = getopt.getopt(argv, "hu:p:m:n:t:i:", ["input=", "check"])
+		opts, args = getopt.getopt(argv, "hfu:p:e:m:n:t:i:", ["ifile=", "check"])
 	except getopt.GetoptError:
 		print(usage)
 		exit(2)
@@ -156,11 +224,17 @@ def main(argv):
 			print(usage)
 			exit(2)
 
+		elif opt == '-f': #Get choices of different economic units
+			operation = "findUnits"
+
 		elif opt == "-u":
 			credentials["username"] = arg
 
 		elif opt == "-p":
 			credentials["password"] = arg
+
+		elif opt == "-e": #Set economic unit ID
+			credentials["economicUnit"] = arg
 
 		elif opt == "-m":
 			mac = arg
@@ -175,7 +249,7 @@ def main(argv):
 				print(f"Wrong type: {arg}")
 				exit(1)
 
-		elif opt in ("-i", "--input"):
+		elif opt in ("-i", "--ifile"):
 			inputFile = arg
 			multiple = True
 
@@ -188,18 +262,16 @@ def main(argv):
 			exit(1)
 
 	sess = requests.Session()
-	login(sess, credentials)
 	
-	if operation == "register":
+	if operation == "register" and not multiple:
+		login(sess, credentials)
 		registerMAC(sess, mac, name, device)
-		print(f"{name} {mac} {device} registered: {verifyMACExists(sess, mac)}")
+		
+		logout(sess)
 		exit(0)
-	
-	elif operation == "check":
-		print(f"MAC {mac} registered: {verifyMACExists(sess, mac)}")
-		exit(0)
-	
+
 	elif operation == "register" and multiple:
+		login(sess, credentials)
 		#MAC	NAME	TYPE
 		with open(inputFile, 'r') as file:
 			for line in file:
@@ -208,16 +280,34 @@ def main(argv):
 				name = split[1]
 				device = Type[split[2]]
 				registerMAC(sess, mac, name, device)
-				print(f"{name} {mac} {device} registered: {verifyMACExists(sess, mac)}")
+		
+		logout(sess)
+		exit(0)
+	
+	elif operation == "check" and not multiple:
+		login(sess, credentials)
+		print(f"MAC {mac} registered: {verifyMACExists(sess, mac)}")
+		
+		logout(sess)
+		exit(0)
 	
 	elif operation == "check" and multiple:
+		login(sess, credentials)
 		#MAC	(NAME	TYPE)
 		with open(inputFile, 'r') as file:
 			for line in file:
 				split = line.strip().split('\t')
 				mac = split[0]
 				print(f"MAC {mac} registered: {verifyMACExists(sess, mac)}")
-
+		
+		logout(sess)
+		exit(0)
+	
+	elif operation == "findUnits":
+		login(sess, credentials, findUnits=True)
+		
+		logout(sess)
+		exit(0)
 
 if __name__ == '__main__':
 	main(sys.argv[1:])
