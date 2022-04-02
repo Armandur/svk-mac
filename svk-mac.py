@@ -2,7 +2,6 @@
 # Author: Rasmus Pettersson Vik
 # Version: 1.2.0
 
-from audioop import mul
 import requests
 import sys
 from sys import exit
