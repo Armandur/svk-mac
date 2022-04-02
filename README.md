@@ -1,5 +1,8 @@
 # svk-mac
-Pythonscript to register mac-addresses to Svenskakyrkan-pda or check if they're registered
+Utility to register mac-addresses to Svenskakyrkan-pda or check if they're registered.
+Supports users with access to multiple economic units.
+
+Utility requires connection to KNET, either via VPN or Citrix.
 
 ## Usage
 ```
