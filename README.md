@@ -23,4 +23,4 @@ list-of-mac-adresses.txt tab-separated with
 ## Requirements
 Python modules, add with pip install <module>:
 * requests
-* beutifulsoup4
+* beautifulsoup4
